@@ -1,0 +1,898 @@
+---
+title: "POBREZA MULTIDIMENSIONAL"
+author: Kamila Ruiz Carrasco
+output: 
+  flexdashboard::flex_dashboard:
+    theme: journal
+    source_code: embed
+    orientation: columns
+    vertical_layout: fill
+---
+
+1. Introducción {data-icon="fa-solid fa-lightbulb"}
+===================================== 
+Column {data-width=550}
+-----------------------------------------------------------------------
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(stringi)
+library(ggplot2)
+library(dplyr)
+library(ggthemes)
+library(kableExtra)
+library(plotly)
+library(fontawesome)
+library(rio)
+library(DT)
+library(vtable)
+library(reshape2) 
+library(tmap)
+library(tidyverse)
+library(modelsummary)
+library(sf) 
+library(psych)
+library(matrixcalc)
+library(knitr)
+library(lmtest)
+library(pROC)
+library(cvms)
+library(margins)
+library(BBmisc)
+library(magrittr)
+library(ggcorrplot)
+library(shinyMobile)
+library(readxl)
+library(shiny)
+library(cluster)
+library(factoextra)
+library(dplyr)
+library(clusterSim)
+
+setwd("D:\\2025-1\\Est 2\\datas trabajo final")
+
+#data entera
+enaho=read.csv("enaho_dep.csv")
+
+#tabla pobreza x departamento
+tabla_pobre_dep = read.csv("tabla_pobre_dep.csv")
+
+#mapa
+peru_map <- st_read("D:/2025-1/Est 2/datas trabajo final/Departamental INEI 2023 geogpsperu SuyoPomalia.shp")
+
+computeMuestra = function() {
+  return("36 848")
+}
+
+computeHogaresEncuestados = function() {
+  return("34 213")
+}
+
+tabla_pobre_dep$DEPARTAMENTO <- toupper(trimws(tabla_pobre_dep$DEPARTAMENTO))
+peru_map$DEPARTAMEN <- toupper(trimws(peru_map$DEPARTAMEN))
+
+enaho_mapa <- merge(tabla_pobre_dep, peru_map, by.x = "DEPARTAMENTO", by.y = "DEPARTAMEN", all.x = TRUE)
+
+if (!inherits(enaho_mapa, "sf")) {
+  enaho_mapa <- st_as_sf(enaho_mapa)
+}
+```
+
+```{r}
+tmap_mode("view")
+
+# Crear el mapa con los porcentajes de pobreza
+map <- tm_shape(enaho_mapa) +
+  tm_fill("Porcentaje", # La variable que define el color
+          palette = "Reds", # Paleta de colores
+          style = "quantile", 
+          title = "% pobreza por departamento", #leyenda
+          popup.vars = c("DEPARTAMENTO", "Porcentaje")) + 
+  tm_borders("grey25", alpha = 0.5) + 
+  tm_layout(main.title = "Mapa de pobreza por departamento", 
+            main.title.position = c("center", "top")) + # Título principal
+  tm_view(view.legend.position = c("left", "bottom")) # Posición de la leyenda
+
+map
+```
+
+### Total de hogares encuestados
+```{r}
+hogares = computeHogaresEncuestados()
+valueBox(hogares, icon = "fa-solid fa-house")
+```
+
+Column {data-width=450}{.tabset}
+-----------------------------------------------------------------------
+### Introducción
+
+**PROBLEMÁTICA OBSERVADA:**
+
+- Actualmente, la medicion de pobreza en el peru se basa en el enfoque monetario propuesto por el INEI, esta perspectiva subestima la magnitud real de la pobreza; puesto que limita el término unicamente a la insuficiencia de ingresos (umbral de pobreza). **Dejando de lado factores estructurales o contextuales no monetarios que inciden en el desarrollo de los miemnros del hogar** y con ello influyen en su condicion de pobreza o no pobreza. Se entiende que este modelo no abarca variables relevantes como la salud, educacion, empleo y conectividad entre los hogares peruanos. 
+
+- Se limita la respuesta estatal a intervenciones orientadas a soluciones monetarias en detrimento de estrategias transformadoras que aborden factores estruturales en relacion a la pobreza 
+
+**JUSTIFICACIÓN:**
+
+- La necesidad de adaptar la medición de pobreza a fin de promover el desarrollo multidimensional de los peruanos (Agenda 2030 y los ODS). El estudio abarca una perspectiva lejos del enfoque economicista que vincula pobreza exclusivamente con la falta de ingresos, la pobreza no solo es monetaria, sino que es la rivacion de capacidades y libertades en el sujeto (Sen, 1998). 
+
+- Se contribuye a disminuir la brecha actual de focalizacion y diseño de politicas ppúblicas, ya que bajo un enfoque multidimensional se priorizan las intervenciones integrales que solucionen las causas profundas de la pobreza. 
+
+### Pregunta e Hipotesis
+
+**PREGUNTA DE INVESTIGACIÓN:**
+
+* ¿Qué factores no económicos influyen en la condición de pobreza en los hogares peruanos en 2022?
+
+**HIPOTESIS:**
+
+Al tener una variable dependiente dicotómica se propusó hipotesis anidadas:
+
+* H1: La condición de pobreza del hogar puede predecirse a partir del acceso a internet dentro de la misma
+
+* H2: La condición de pobreza del hogar se predice en tanto se considera el acceso a internet del mismo como el nivel educativo alcanzado predominante entre los miembros.
+
+* H3: La condición de pobreza del hogar es condicionada al acceso a internet, al nivel educativo alcanzado predominante entre los miembros y el padecimiento de enfermedades o males crónicos como aspecto prevalente dentro de la unidad doméstica
+
+* H4: La condición de pobreza de la unidad doméstica se puede predecir a partir del acceso a internet, el nivel educativo alcanzado predominante, al padecimiento de enfermedades o males crónicos como condición prevalente y al tipo de empleo más frecuente dentro del hogar 
+
+2. Análisis univariado {data-icon="fa-solid fa-chart-simple"}
+===================================== 
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+### Gráfico pie sobre hogares pobres y no pobres en Perú
+```{r}
+pobreza_pie <- data.frame(
+  POBREZA = c("No Pobreza","Pobreza"),
+  Frecuencia = c(27192, 7021),
+  Porcentaje = c(79.5, 20.5)
+)
+
+pie_pobreza <- plot_ly(data = pobreza_pie,
+               labels = ~POBREZA,
+               values = ~Frecuencia,
+               type = 'pie',
+               textinfo = 'label+percent',
+               hoverinfo = 'label+percent+value',
+               marker = list(colors = c('#d1a1e2', '#80e0d3')))%>%
+    layout(title = "Distribución de hogares según condición de pobreza",
+         showlegend = TRUE)
+pie_pobreza
+```
+
+> ENAHO 2022. (2022). Encuesta Nacional de Hogares 2022. Instituto Nacional de Estadística e Informática (INEI).
+
+Column {data-width=500}{.tabset}
+-----------------------------------------------------------------------
+### Gráfico de barras de % hogares con acceso a Internet
+```{r}
+tabla_internet = enaho %>%
+  group_by(INTERNET) %>%  # Agrupar por la columna INTERNET
+  summarise(Frecuencia = dplyr::n(), .groups = "drop") %>%  # Contar las observaciones en cada grupo
+  mutate(Porcentaje = Frecuencia / sum(Frecuencia) * 100) %>%  # Calcular porcentaje
+  mutate(INTERNET = case_when(
+    INTERNET == 1 ~ "Sí",
+    INTERNET == 0 ~ "No"
+  ))
+
+grafico_inter =	ggplot(tabla_internet,aes(x=reorder(INTERNET,-Porcentaje), y=Porcentaje, fill=INTERNET)) + 
+ggtitle("Porcentaje de hogares que cuenta con Internet a nivel nacional")+ 
+  		geom_bar(stat ="identity") + 
+xlab("Tiene o no conexión a Internet") + ylab("Porcentaje") +
+geom_text(aes(label=round(Porcentaje,1)), vjust=0, color="black", size=3)+
+scale_fill_brewer(name="Tiene o no conexión a Internet", palette="Pastel1") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+grafico_inter
+```
+
+### Gráfico de barras de % hogares según su nivel prevalente de educación entre miembros
+```{r}
+tabla_edu = enaho %>%
+  group_by(NIVEL_EDU) %>% 
+  summarise(Frecuencia = dplyr::n(), .groups = "drop") %>%  
+  mutate(Porcentaje = round(Frecuencia / sum(Frecuencia) * 100, 1)) %>%
+  mutate(NIVEL_EDU = case_when(
+    NIVEL_EDU == 1 ~ "Sin nivel educativo", 
+    NIVEL_EDU == 2 ~ "Educación inicial",
+    NIVEL_EDU == 3 ~ "Educación primaria",
+    NIVEL_EDU == 4 ~ "Educación secundaria",
+    NIVEL_EDU == 5 ~ "Superior no universitaria",
+    NIVEL_EDU == 6 ~ "Superior universitaria",
+    NIVEL_EDU == 7 ~ "Educación básica especial"
+  ))
+grafico_edu =	ggplot(tabla_edu,aes(x=reorder(NIVEL_EDU,-Porcentaje), y=Porcentaje, fill=NIVEL_EDU)) + 
+ggtitle("Porcentaje de hogares que cuenta con Internet a nivel nacional")+ 
+  		geom_bar(stat ="identity") + 
+xlab("Nivel de educacion alcanzado") + ylab("Porcentaje") +
+geom_text(aes(label=round(Porcentaje,1)), vjust=0, color="black", size=3)+
+scale_fill_brewer(name="Nivel de educacion alcanzado", palette="Pastel2") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+grafico_edu
+```
+
+### Gráfico de barras de % hogares según moda de mal crónico entre sus miembros
+```{r}
+tabla_mal = enaho %>%
+  group_by(MAL_CRONICO) %>%
+  summarise(Frecuencia = dplyr::n(), .groups = "drop") %>%  
+  mutate(Porcentaje = round(Frecuencia / sum(Frecuencia) * 100, 1)) %>% 
+  mutate(MAL_CRONICO = case_when(
+    MAL_CRONICO == 1 ~ "Sí", 
+    MAL_CRONICO == 0 ~ "No"
+  ))
+
+grafico_mal =	ggplot(tabla_mal,aes(x=reorder(MAL_CRONICO,-Porcentaje), y=Porcentaje, fill=MAL_CRONICO)) + 
+ggtitle("Porcentaje de hogares con alguna enfermedad o malestar crónico")+ 
+  		geom_bar(stat ="identity") + 
+xlab("Padece o no padece") + ylab("Porcentaje") +
+geom_text(aes(label=round(Porcentaje,1)), vjust=0, color="black", size=3)+
+scale_fill_brewer(name="Padece o no padece", palette="Pastel2") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+grafico_mal
+```
+
+### Gráfico de barras de % hogares según tipo de empleo predominante entre miembros
+```{r}
+tabla_empleo = enaho %>%
+  group_by(TIPO_EMPLEO) %>% 
+  summarise(Frecuencia = dplyr::n(), .groups = "drop") %>%  
+  mutate(Porcentaje = round(Frecuencia / sum(Frecuencia) * 100, 1)) %>% 
+  mutate(TIPO_EMPLEO = case_when(
+    TIPO_EMPLEO == 1 ~ "Empleo Formal", 
+    TIPO_EMPLEO == 0 ~ "Empleo Informal"
+  ))
+grafico_empleo =	ggplot(tabla_empleo,aes(x=reorder(TIPO_EMPLEO,-Porcentaje), y=Porcentaje, fill=TIPO_EMPLEO)) + 
+ggtitle("Porcentaje de hogares según tipo de empleo")+ 
+  		geom_bar(stat ="identity") + 
+xlab("Tipo de empleo") + ylab("Porcentaje") +
+geom_text(aes(label=round(Porcentaje,1)), vjust=0, color="black", size=3)+
+scale_fill_brewer(name="Tipo de empleo", palette="Pastel4") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+grafico_empleo
+```
+
+3. Análisis bivariado {data-icon="fa-solid fa-check"}
+===================================== 
+
+Column {data-width=500}{.tabset}
+-----------------------------------------------------------------------
+### Chi cuadrado: pobreza e internet
+```{r}
+tabla_contingencia1 <- table(enaho$POBREZA, enaho$INTERNET) #filas = pobreza, col = internet
+
+
+#cambiar nombres
+dimnames(tabla_contingencia1) <- list(
+  POBREZA = c("No pobreza", "Pobreza"),
+  INTERNET = c("No tiene", "Si tiene")
+)
+
+#matriz con nombres
+tablachi1 <- matrix(c(11498, 15694, 5363, 1658), nrow = 2, byrow = TRUE,
+                   dimnames = list("POBREZA" = c("No pobreza", "Pobreza"),
+                                   "INTERNET" = c("No tiene", "Si tiene")))
+
+df_tablachi1 <- as.data.frame(tablachi1)
+df_tablachi1$POBREZA <- rownames(df_tablachi1)
+df_tablachi1 <- df_tablachi1[, c("POBREZA", "No tiene", "Si tiene")]
+
+# Visualización 
+library(knitr)
+library(kableExtra)
+library(dplyr)
+
+df_tablachi1 %>%
+  kable(caption = "Tabla de Contingencia: Pobreza y Acceso a Internet") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE, position = "center", font_size = 14) %>%
+  column_spec(1, bold = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "Black", background = "#D7A7D1") %>%
+  column_spec(2:3, width = "6em")
+
+```
+
+```{r}
+#prueba chi2
+resultadochi1 <- chisq.test(tablachi1)
+
+# tabla resumen
+vis_chi1 <- data.frame(
+  Estimación = c("Estadística Chi-cuadrado", "Valor p"),
+  Valor = c(as.numeric(resultadochi1$statistic),as.numeric(resultadochi1$p.value))
+)
+
+#ver pvalue pequeño
+vis_chi1$Valor <- ifelse(vis_chi1$Estimación == "Valor p" & vis_chi1$Valor < 0.001,
+                        "< 0.001",
+                        round(vis_chi1$Valor, 3))
+
+#para verlo bonito
+vis_chi1 %>%
+  kable(caption = "Chi cuadrado: Pobreza y acceso a Internet") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE, position = "center") %>%
+  column_spec(1, bold = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "Black", background = "#D7A7D1")
+
+```
+
+### Chi cuadrado: pobreza y nivel de educacion
+```{r}
+tabla_contingencia2<- table(enaho$POBREZA, enaho$NIVEL_EDU) #filas = pobreza, col = edu
+
+#cambiar nombres
+dimnames(tabla_contingencia2) <- list(
+  POBREZA = c("No pobreza", "Pobreza"),
+  NIVEL_EDU = c("1: Sin nivel educativo", 
+                "2: Educación Inicial", 
+                "3: Educación Primaria", 
+                "4: Educación Secundaria", 
+                "5: Superior no universitaria", 
+                "6: Superior universitaria", 
+                "7: Educación Básica Especial")
+)
+
+tablachi2 <- matrix(
+  c(2310, 1071, 843, 256, 9252, 3409, 9686, 
+    2112, 1956, 112, 3142, 60, 3, 1),
+  nrow = 2, byrow = TRUE,
+  dimnames = list(
+    "POBREZA" = c("No pobreza", "Pobreza"),
+    "NIVEL_EDU" = c(
+      "1: Sin nivel educativo",
+      "2: Educación Inicial",
+      "3: Educación Primaria",
+      "4: Educación Secundaria",
+      "5: Superior no universitaria",
+      "6: Superior universitaria",
+      "7: Educación Básica Especial")))
+
+df_tablachi2 <- as.data.frame(tablachi2)
+df_tablachi2$POBREZA <- rownames(df_tablachi2)
+df_tablachi2 <- df_tablachi2[, c("POBREZA", "1: Sin nivel educativo",
+                               "2: Educación Inicial",
+                               "3: Educación Primaria",
+                               "4: Educación Secundaria",
+                               "5: Superior no universitaria",
+                               "6: Superior universitaria",
+                               "7: Educación Básica Especial")]
+
+# Visualización 
+df_tablachi2 %>%
+  kable(caption = "Tabla de Contingencia: Pobreza y Nivel educativo alcanzado") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE, position = "center", font_size = 14) %>%
+  column_spec(1, bold = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "Black", background = "#F5A1A1") %>%
+  column_spec(2:8, width = "6em")
+
+```
+
+```{r}
+#prueba chi2
+resultadochi2 <- chisq.test(tablachi2)
+
+# tabla resumen
+vis_chi2 <- data.frame(
+  Estimación = c("Estadística Chi-cuadrado", "Valor p"),
+  Valor = c(as.numeric(resultadochi2$statistic),as.numeric(resultadochi2$p.value))
+)
+
+#ver pvalue pequeño
+vis_chi2$Valor <- ifelse(vis_chi2$Estimación == "Valor p" & vis_chi2$Valor < 0.001,
+                        "< 0.001",
+                        round(vis_chi2$Valor, 3))
+
+#para verlo bonito
+vis_chi2 %>%
+  kable(caption = "Chi cuadrado: Pobreza y Nivel educativo") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE, position = "center") %>%
+  column_spec(1, bold = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "Black", background = "#F5A1A1")
+```
+
+### Chi cuadrado: pobreza y mal crónico
+```{r}
+tabla_contingencia3 <- table(enaho$POBREZA, enaho$MAL_CRONICO) #filas = pobreza, col = mal cro
+
+#cambiar nombres
+dimnames(tabla_contingencia3) <- list(
+  POBREZA = c("No pobreza", "Pobreza"),
+  MAL_CRONICO = c("No padece", "Si padece")
+)
+
+tablachi3 <- matrix(c(15787, 11405, 5275, 1746), nrow = 2, byrow = TRUE,
+                   dimnames = list("POBREZA" = c("No pobreza", "Pobreza"),
+                                   "MAL_CRONICO" = c("No padece", "Si padece")))
+
+df_tablachi3 <- as.data.frame(tablachi3)
+df_tablachi3$POBREZA <- rownames(df_tablachi3)
+df_tablachi3 <- df_tablachi3[, c("POBREZA", "No padece", "Si padece")]
+
+# Visualización 
+df_tablachi3 %>%
+  kable(caption = "Tabla de Contingencia: Pobreza y Padecimiento de mal crónico") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE, position = "center", font_size = 14) %>%
+  column_spec(1, bold = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "Black", background = "#F1C2A1") %>%
+  column_spec(2:3, width = "6em")
+
+```
+
+```{r}
+#prueba chi2
+resultadochi3 <- chisq.test(tablachi3)
+
+# tabla resumen
+vis_chi3 <- data.frame(
+  Estimación = c("Estadística Chi-cuadrado", "Valor p"),
+  Valor = c(as.numeric(resultadochi3$statistic),as.numeric(resultadochi3$p.value))
+)
+
+#ver pvalue pequeño
+vis_chi3$Valor <- ifelse(vis_chi3$Estimación == "Valor p" & vis_chi3$Valor < 0.001,
+                        "< 0.001",
+                        round(vis_chi3$Valor, 3))
+
+#para verlo bonito
+vis_chi3 %>%
+  kable(caption = "Chi cuadrado: Pobreza y Padecimiento de mal crónico") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE, position = "center") %>%
+  column_spec(1, bold = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "Black", background = "#F1C2A1")
+
+```
+
+### Chi cuadrado: pobreza y tipo de empleo
+```{r}
+tabla_contingencia4 <- table(enaho$POBREZA, enaho$TIPO_EMPLEO) #filas = pobreza, col = empleo
+
+#cambiar nombres
+dimnames(tabla_contingencia4) <- list(
+  POBREZA = c("No pobreza", "Pobreza"),
+  TIPO_EMPLEO = c("Empleo informal", "Empleo formal")
+)
+
+tablachi4 <- matrix(c(17336, 9856, 5718, 1303), nrow = 2, byrow = TRUE,
+                   dimnames = list("POBREZA" = c("No pobreza", "Pobreza"),
+                                   "TIPO_EMPLEO" = c("Empleo informal", "Empleo formal")))
+
+df_tablachi4 <- as.data.frame(tablachi4)
+df_tablachi4$POBREZA <- rownames(df_tablachi4)
+df_tablachi4 <- df_tablachi4[, c("POBREZA","Empleo informal", "Empleo formal")]
+
+# Visualización 
+df_tablachi4 %>%
+  kable(caption = "Tabla de Contingencia: Pobreza y Tipo de empleo") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE, position = "center", font_size = 14) %>%
+  column_spec(1, bold = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "Black", background = "#D6E8A1") %>%
+  column_spec(2:3, width = "6em")
+```
+
+```{r}
+#prueba chi2
+resultadochi4 <- chisq.test(tablachi4)
+
+# tabla resumen
+vis_chi4 <- data.frame(
+  Estimación = c("Estadística Chi-cuadrado", "Valor p"),
+  Valor = c(as.numeric(resultadochi4$statistic),as.numeric(resultadochi4$p.value)))
+
+#ver pvalue pequeño
+vis_chi4$Valor <- ifelse(vis_chi4$Estimación == "Valor p" & vis_chi4$Valor < 0.001,
+                        "< 0.001",
+                        round(vis_chi4$Valor, 3))
+
+#para verlo bonito
+vis_chi4 %>%
+  kable(caption = "Chi cuadrado: Pobreza y Tipo de empleo") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE, position = "center") %>%
+  column_spec(1, bold = TRUE) %>%
+  row_spec(0, bold = TRUE, color = "Black", background = "#D6E8A1")
+
+```
+
+Column {data-width=500}{.tabset}
+-----------------------------------------------------------------------
+### Gráfico bivariado: pobreza e internet
+```{r}
+tabla_porcentaje1= as.data.frame(tabla_contingencia1%>%
+  prop.table(1) %>%
+  round(3)*100)
+
+#grafico porcentajes bivariado: pobreza e internet
+
+graf_bivariado1= ggplot(data=tabla_porcentaje1, aes(x=POBREZA, y=Freq, fill=INTERNET))+
+  geom_bar(position="stack", stat="identity")+
+  geom_text(aes(label=paste(Freq, "%", sep="")), 
+            position = position_stack(), vjust=1, size = 4, color="white", fontface = "bold")+
+  labs(x="Pobreza", y="Porcentaje", fill="Hogares con o sin acceso a internet",title="Distribución del acceso a Internet según condición de pobreza") +
+  scale_fill_manual(values=c("No tiene"="#D7A7D1", "Si tiene"="#8F3B70")) + 
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+graf_bivariado1
+```
+
+### Gráfico bivariado: pobreza y nivel de educacion
+```{r}
+tabla_porcentaje2= as.data.frame(tabla_contingencia2%>%
+  prop.table(1) %>%
+  round(3)*100)
+
+#grafico
+graf_bivariado2 = ggplot(data=tabla_porcentaje2, aes(x=POBREZA, y=Freq, fill=NIVEL_EDU)) +
+  geom_bar(position="stack", stat="identity") +
+  geom_text(aes(label=paste(Freq, "%", sep="")), 
+            position = position_stack(), vjust=1, size=3, color="white",fontface="bold") +
+  labs(x="Pobreza", y="Porcentaje", fill="Nivel educativo", title="Distribución del nivel educativo según condición de pobreza") +
+  scale_fill_manual(values=c("#F6C1C1", "#F17A84", "#E04F6F", "#D2344D", "#9E1A2A","#871C33", "#4C1423")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+graf_bivariado2
+```
+
+### Gráfico bivariado: pobreza y mal cronico 
+```{r}
+tabla_porcentaje3= as.data.frame(tabla_contingencia3%>%
+  prop.table(1) %>%
+  round(3)*100)
+
+graf_bivariado3= ggplot(data=tabla_porcentaje3, aes(x=POBREZA, y=Freq, fill=MAL_CRONICO))+
+  geom_bar(position="stack", stat="identity")+
+  geom_text(aes(label=paste(Freq, "%", sep="")), 
+            position = position_stack(), vjust=1, size = 4, color="black", fontface = "bold")+
+  labs(x="Pobreza", y="Porcentaje", fill="Mal crónico",title="Distribución de mal cronico según condición de pobreza") +
+  scale_fill_manual(values=c("No padece"="#F1C2A1", "Si padece"= "#E86C00")) + 
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+graf_bivariado3
+```
+
+### Gráfico bivariado: pobreza y tipo de empleo
+```{r}
+tabla_porcentaje4= as.data.frame(tabla_contingencia4%>%
+  prop.table(1) %>%
+  round(3)*100)
+
+graf_bivariado4= ggplot(data=tabla_porcentaje4, aes(x=POBREZA, y=Freq, fill=TIPO_EMPLEO))+
+  geom_bar(position="stack", stat="identity")+
+  geom_text(aes(label=paste(Freq, "%", sep="")), 
+            position = position_stack(), vjust=1, size = 4, color="black", fontface = "bold")+
+  labs(x="Pobreza", y="Porcentaje", fill="Tipo de empleo",title="Distribución de los tipos de empleo según condición de pobreza") +
+  scale_fill_manual(values=c("Empleo informal"="#D6E8A1", "Empleo formal"="#98B740")) + 
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+graf_bivariado4
+```
+
+4. Regresiones {data-icon="fa-solid fa-wave-square"}
+===================================== 
+
+Column {data-width=500}{.tabset}
+-----------------------------------------------------------------------
+
+### Regresiones anidadas
+```{r}
+#hipotesis 1
+h1=formula(POBREZA ~ INTERNET)
+
+rlog1=glm(h1,data=enaho,family = binomial)
+modelrl=list("ser pobre (I)" = rlog1)
+
+#hipotesis 2
+h2=formula(POBREZA ~ INTERNET + NIVEL_EDU)
+
+rlog2=glm(h2,data=enaho,family = binomial)
+modelrl=list("ser pobre (I)" = rlog1,
+             "ser pobre (II)" = rlog2)
+
+#hipotesis 3
+h3=formula(POBREZA ~ INTERNET + NIVEL_EDU + MAL_CRONICO)
+
+rlog3=glm(h3,data=enaho,family = binomial)
+modelrl=list("ser pobre (I)" = rlog1,
+             "ser pobre (II)" = rlog2,
+             "ser pobre (III)" = rlog3)
+
+#hipotesis 4
+h4=formula(POBREZA ~ INTERNET + NIVEL_EDU + MAL_CRONICO + TIPO_EMPLEO)
+
+rlog4=glm(h4,data=enaho,family = binomial)
+modelrl=list("ser pobre (I)" = rlog1,
+             "ser pobre (II)" = rlog2,
+             "ser pobre (III)" = rlog3,
+             "ser pobre (IV)" = rlog4)
+
+library(modelsummary)
+modelsummary(modelrl,
+             title = "Regresión Logística",
+             stars = TRUE,
+             output = "kableExtra")
+
+```
+
+### Comparación de modelos anidades exponenciados 
+```{r}
+#hipotesis 1
+h1=formula(POBREZA ~ INTERNET)
+
+rlog1=glm(h1,data=enaho,family = binomial)
+modelrl=list("ser pobre (I)" = rlog1)
+
+#hipotesis 2
+h2=formula(POBREZA ~ INTERNET + NIVEL_EDU)
+
+rlog2=glm(h2,data=enaho,family = binomial)
+modelrl=list("ser pobre (I)" = rlog1,
+             "ser pobre (II)" = rlog2)
+
+#hipotesis 3
+h3=formula(POBREZA ~ INTERNET + NIVEL_EDU + MAL_CRONICO)
+
+rlog3=glm(h3,data=enaho,family = binomial)
+modelrl=list("ser pobre (I)" = rlog1,
+             "ser pobre (II)" = rlog2,
+             "ser pobre (III)" = rlog3)
+
+#hipotesis 4
+h4=formula(POBREZA ~ INTERNET + NIVEL_EDU + MAL_CRONICO + TIPO_EMPLEO)
+
+rlog4=glm(h4,data=enaho,family = binomial)
+modelrl=list("ser pobre (I)" = rlog1,
+             "ser pobre (II)" = rlog2,
+             "ser pobre (III)" = rlog3,
+             "ser pobre (IV)" = rlog4)
+
+#FUNCION
+formatoNumero = function(x) format(x, digits = 4, scientific = FALSE)
+
+library(modelsummary)
+modelsummary(modelrl,
+             fmt=formatoNumero,
+             exponentiate = T,
+             title = "Comparaciones de regresiones logísticas anidadas (Coeficientes Exponenciados)",
+             stars = TRUE,
+             output = "kableExtra")
+```
+
+>**Al evaluar valores de AIC y BIC:**modelo de regresión logística IV presenta un mejor ajuste y eficiencia en comparación con los otros modelos, pues este modelo tiene los valores menores en AIC y BIC
+
+### Tabla con Test de razón de verosimilitud (LRT)
+```{r}
+lrtest(rlog1,rlog2, rlog3,rlog4) %>%
+kable(caption = "Tabla LRT para comparar modelos")%>%kableExtra::kable_styling(full_width = FALSE)
+```
+
+<style>
+.observacion-texto {
+  font-size: 16px; 
+  font-weight: normal; 
+  color: grey;
+}
+</style>
+
+<div class="observacion-texto">
+  - pvalor = 0 = todos los modelos son significativos. Se optó por considerar valor de la verosimilitud (logLik), el modelo IV tienen un valor menor en dicho logaritmo en comparación de los demás, además, el valor inferior que tiene el modelo IV en AIC/BIC. Así, es posible señalar que el **modelo IV estadísticamente es mejor**.
+</div>
+
+### Sensibilidad
+```{r}
+enaho$pobreza=enaho$POBREZA
+
+enaho$pobreza <- recode(enaho$pobreza,
+                        "1" = "yes",
+                        "0" = "no")
+
+enaho$predictedProbs <- predict(rlog4, enaho,type = "response")
+
+enaho$predicted = ifelse(enaho$predictedProbs > 0.3, "yes","no")
+
+ConfMatrix=confusion_matrix(predictions =  enaho$predicted,
+                      targets= enaho$pobreza)
+
+ConfMatrix$Sensitivity
+```
+
+<div class="observacion-texto">
+  - La **sensitividad** mide la capacidad del modelo para identificar correctamente los casos positivos, es decir aquellos hogares que están en situación de **pobreza**.
+</div>
+
+<div class="observacion-texto">
+  - El **54%** de los hogares verdaderamente en situación de pobreza fueron correctamente identificados por el modelo.
+</div>
+
+### Especificidad
+```{r}
+ConfMatrix$Specificity
+```
+
+<div class="observacion-texto">
+  - La **especificidad** mide capacidad del modelo para identificar correctamente casos negativos, hogares que no están en situación de pobreza.
+</div>
+
+<div class="observacion-texto">
+  - El **79%** de los hogares verdaderamente no pobres fueron correctamente clasificados como no pobres = el **21%** restante de hogares no pobres fueron incorrectamente clasificados como pobres.
+</div>
+
+Column {data-width=500}{.tabset}
+-----------------------------------------------------------------------
+
+### Curva ROC
+```{r}
+roc_curva <- roc(enaho$pobreza, enaho$predictedProbs)
+
+plot(roc_curva, main = "Curva ROC", col = "darkred", lwd = 2)
+```
+
+> Curva ROC en función de hallar el umbral de decisión apropiado.
+
+### Matriz de confusión 
+```{r}
+plot_confusion_matrix(ConfMatrix,
+                      class_order=c("yes","no"))
+```
+
+> Visualizacion de los resultados de sensitividad y especificidad (54% y 79% respectivamente) =  baja sensibilidad y alta especificidad sugieren que el modelo es mejor para identificar hogares no pobres
+
+### Tabla de efectos Marginales
+```{r}
+marginalsData=summary(margins(rlog4)) 
+marginalsData%>% kable(caption = "Efectos Marginales Promedio (AME)- Modelo IV") %>%kableExtra::kable_styling(full_width = T)
+```
+
+<div class="observacion-texto">
+  - Predictores están **negativamente asociados** con la probabilidad de pobreza en los hogares peruanos= a medida que estos factores no monetarios mejoran, la probabilidad de que un hogar esté en situación de pobreza disminuye significativamente.
+</div>
+
+<div class="observacion-texto">
+  - El incremento en el acceso a internet se asocia con una **disminución** de aproximadamente **17.59%** en la probabilidad de pobreza
+</div>
+
+<div class="observacion-texto">
+  - Aumento en el nivel educativo del hogar se vincula con una **reducción** de aproximadamente un 3.69% en la probabilidad de pobreza (en menor medida en comparación con otros factores).
+</div>
+
+### Gráfico de Efectos Marginales
+```{r}
+base= ggplot(marginalsData,aes(x=factor, y=AME)) + geom_point()
+base +  geom_errorbar(aes(ymin=lower, ymax=upper))
+```
+
+<div class="observacion-texto">
+  - La transición hacia un **empleo formal** está vinculada a una **disminución de 8.13%** en la probabilidad de pobreza, lo que resalta la importancia de la formalización laboral en la reducción de la vulnerabilidad
+</div>
+
+5. Análisis factorial {data-icon="fa-solid fa-layer-group"}
+===================================== 
+
+Column {data-width=500}{.tabset}
+-----------------------------------------------------------------------
+
+### Matriz de correlación
+```{r}
+dontselect = c("DEPARTAMENTO", "pobreza", "predictedProbs", "predicted", "POBREZA")
+
+select = setdiff(names(enaho), dontselect)
+
+theData = enaho[, select]
+
+theData = theData[, c("INTERNET", "MAL_CRONICO", "NIVEL_EDU", "TIPO_EMPLEO")]
+
+corMatrix=polycor::hetcor(theData)$correlations
+round(corMatrix,2)
+```
+### Gráfico con matriz de correlaciones
+```{r}
+ggcorrplot(
+  corMatrix,
+  method = "square",      
+  lab = TRUE,              # Muestra los valores numéricos
+  lab_size = 4,            # Tamaño del texto
+  colors = c("blue", "white", "red"),  # Color escala
+  tl.cex = 10              # Tamaño de etiquetas de variable
+)
+```
+
+### Resultado  Kaiser-Meyer-Olkin (KMO)
+```{r}
+psych::KMO(corMatrix) 
+```
+### Prueba de matriz de identidad:
+```{r}
+cortest.bartlett(corMatrix,n=nrow(theData))$p.value>0.05
+```
+
+<div class="observacion-texto">
+  - **Se anula H0 = se afirma H1** = la matriz de correlación no es una matriz de identidad, las variables analizadas estan correlacionadas entre si.
+</div>
+
+### Prueba de matriz singular
+```{r}
+is.singular.matrix(corMatrix)
+```
+
+<div class="observacion-texto">
+  - **Se anula H0 = se afirma H1** = la matriz de correlación no es una matriz singular, no hay dependencia lineal entre las variables.
+</div>
+
+### Cantidad de factores recomendados
+```{r}
+fa.parallel(theData, fa = 'fa',correct = T,plot = F)
+```
+
+Column {data-width=500}{.tabset}
+-----------------------------------------------------------------------
+
+### Interpretación Matriz de Correlaciones
+
+- La variable Mal crónico predominante entre los miembros del hogar tiene baja correlación con las demás variables, esto refleja que la presencia de males crónicos no está directamente relacionada con el acceso a recursos como internet, tipo de empleo o nivel de educación. 
+
+- Existe correlación moderada (0.39) positiva entre el acceso a internet y el nivel educativo en los hogares. Esto sugiere que en contextos de mayor nivel de educación, los hogares tienen más probabilidades de tener acceso a internet.
+
+- Por otro lado, la relación entre el nivel educativo y el tipo de empleo puede indicar que los hogares con mayor nivel educativo tienden a presentar miembros empleados en el sector formal. Se entiende que la falta de educación limita las oportunidades de obtener empleos de calidad.
+
+### Interpretación Resultado KMO
+
+- **KMO = 0.61** = esto sugiere que los datos no son óptimos, pero el análisis factorial aún es posible, lo ideal sería que el resultado de KMO sea mayor a 0.7. 
+ 
+
+- La variable Tipo de Empleo muestra la mayor adecuación razonable para realizar un análisis factorial, seguida de la variable acceso a internet y padecimiento de mal crónico
+
+- El valor de adecuación muestral (MSA) en la variable de Nivel de educación con un valor de 0.59 indica que la variable tiene una correlación baja con las otras variables
+
+### Interpretación de la cantidad de factores
+
+- **Factores sugeridos = 0** = no hay componentes significativos que justifiquen la extracción de factores en este análisis. Puede estar relacionado al hecho de que solo se está trabajando con 4 variables y la capacidad de identificar agrupaciones de relación es reducida. 
+
+- A partir de que el análisis factorial no ha identificado factores relevantes resalta el hecho de que la pobreza es un fenómeno multidimensional que abarca una variedad de aspectos más amplios a los cuatro indicadores considerados en este estudio. Si bien estas variables son relevantes, estas dimensiones no son suficientes para capturar la complejidad de las condiciones de vida de los hogares en situación de vulnerabilidad.
+
+- **Subraya necesidad de ampliar el enfoque de medición de la pobreza**, incorporando más dimensiones y factores que puedan proporcionar una visión más integral del bienestar de los hogares.
+
+
+6. Conclusiones {data-icon="fa-solid fa-magnifying-glass"}
+===================================== 
+
+Column {data-width=500} {.tabset}
+-----------------------------------------------------------------------
+
+### Conclusiones y hallazgos
+
+- Se confirma que la pobreza en Perú no puede explicarse únicamente por factores económicos (como ingresos), sino que variables no monetarias como acceso a internet, educación, salud y empleo formal y poseen tienen un impacto significativo. Se valida la necesidad de adoptar un enfoque multidimensional en las políticas públicas.
+
+- La conectividad digital (acceso a internet en hogares) demostró ser el factor con mayor efecto marginal (-17.59%), sugiere que la brecha digital perpetúa desigualdades al limitar oportunidades educativas, laborales y de bienestar. Esto cuestiona la eficacia de políticas que ignoran la infraestructura tecnológica como herramienta de desarrollo.
+
+- El coeficiente negativo de "mal crónico" (reducción del 14.09% en pobreza) podría indicar sesgos en la data (ej. hogares con acceso a apoyos externos no estatales) o una medición insuficiente de gastos en salud. Esto resalta la complejidad de medir dimensiones como la salud en contextos de informalidad.
+
+- El efecto marginal tanto de la variable "nivel de educación" como de "tipo de empleo" reflejan que existen problemas estructurales como calidad educativa o precariedad laboral en sectores formales que impactan en la condición de pobreza del hogar.
+
+- El análisis factorial no identificó componentes significativos, lo que sugiere que las cuatro variables analizadas son insuficientes para capturar la multidimensionalidad de la pobreza. Esto refuerza la crítica a los indicadores tradicionales y la urgencia de incluir más dimensiones (por ejemplo: seguridad alimentaria).
+
+- La priorización de la sensibilidad sobre especificidad en el modelo (umbral 0.3) revela un problema real **la exclusión de hogares pobres de programas sociales**. Se critica la dependencia de parámetros monetarios y la falta de mecanismos integrales.
+
+**- Erradicar la pobreza exige trascender el enfoque monetario. Las recomendaciones apuntan a políticas intersectoriales con métricas robustas, capaces de abordar las trampas de desigualdad estructural en Perú.**
+
+Column {data-width=500} {.tabset}
+-----------------------------------------------------------------------
+
+### Recomendaciones
+
+- Inversión en infraestructura digital universal: Diseñar políticas que garanticen acceso a internet en zonas rurales y urbanas marginales, vinculándolo a programas educativos (como becas digitales) y económicos (por ejemplo: emprendimiento en línea).
+
+- Reformular políticas de salud: Priorizar la cobertura universal de salud y subsidios focalizados en hogares con enfermedades, evitando exclusiones.
+
+- Fortalecer la formalización laboral y la calidad educativa: Promover alianzas público-privadas para reducir la informalidad (desde un ajuste institucional estatal para que las políticas sean relevantes) y mejorar la calidad de vida en tanto se integre tanto reformas educativas como integración o desarrollo de la oferta laboral.
+
+- Se sugiere incorporar indicadores de vivienda (como hacinamiento), seguridad alimentaria y participación ciudadana, siguiendo estándares internacionales como el IPM global, para evaluar pobreza en hogares.
+
+- Implementar modelos predictivos como el de este estudio (con umbrales ajustados) para identificar hogares en riesgo multidimensional, evitando exclusiones en programas sociales.
+
